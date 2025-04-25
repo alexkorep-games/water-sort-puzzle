@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Color Liquid Sort Puzzle</title>
+  <style>
+    :root {
+      --tube-width: 60px;
+      --tube-height: 160px;
+      --tube-border: 2px solid #ffffffaa;
+      --tube-radius: 12px;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: linear-gradient(#0f2027, #203a43, #2c5364);
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    header {
+      margin: 1rem 0;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    header button {
+      padding: 0.4rem 0.8rem;
+      border: none;
+      border-radius: 8px;
+      background: #ffffff22;
+      color: #fff;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    header button:hover { background: #ffffff44; }
+
+    #game {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      justify-content: center;
+      padding: 1rem;
+      max-width: 800px;
+    }
+
+    .tube {
+      width: var(--tube-width);
+      height: var(--tube-height);
+      border: var(--tube-border);
+      border-radius: var(--tube-radius);
+      display: flex;
+      flex-direction: column-reverse;
+      justify-content: flex-start;
+      align-items: stretch;
+      position: relative;
+      transition: transform 0.2s;
+    }
+
+    .tube.selected { transform: translateY(-10px) scale(1.05); }
+
+    .tube.shake {
+      animation: shake 0.4s;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-4px); }
+      75% { transform: translateX(4px); }
+    }
+
+    .segment {
+      flex: 1;
+      border-top: 1px solid #0002;
+    }
+
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: #000a;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      z-index: 10;
+    }
+
+    #overlay.show { display: flex; }
+
+    #overlay h1 { margin-bottom: 1rem; }
+    #overlay button { margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <span id='moves'>Moves: 0</span>
+    <button id='undo-btn'>Undo</button>
+    <button id='restart-btn'>Restart</button>
+  </header>
+
+  <div id='game'></div>
+
+  <div id='overlay'>
+    <h1>Amazing!</h1>
+    <p>You solved the puzzle in <span id='final-moves'></span> moves.</p>
+    <button id='next-btn'>Play Again</button>
+  </div>
+
+  <script>
+    /* Configuration */
+    const CAPACITY = 4;
+    const INITIAL_TUBES = [
+      ['red','blue','green','yellow'],
+      ['yellow','green','red','blue'],
+      ['blue','red','yellow','green'],
+      ['green','yellow','blue','red'],
+      [],
+      []
+    ];
+
+    /* State */
+    let tubes = deepCopy(INITIAL_TUBES);
+    let history = [];
+    let moves = 0;
+    let selectedIndex = null;
+
+    /* DOM */
+    const gameEl = document.getElementById('game');
+    const movesEl = document.getElementById('moves');
+    const undoBtn = document.getElementById('undo-btn');
+    const restartBtn = document.getElementById('restart-btn');
+    const overlay = document.getElementById('overlay');
+    const finalMovesEl = document.getElementById('final-moves');
+    const nextBtn = document.getElementById('next-btn');
+
+    /* Event Listeners */
+    undoBtn.addEventListener('click', undoMove);
+    restartBtn.addEventListener('click', restart);
+    nextBtn.addEventListener('click', () => { overlay.classList.remove('show'); restart(); });
+    document.addEventListener('keydown', e => { if(e.key === 'Escape') clearSelection(); });
+
+    /* Setup */
+    render();
+
+    /* Functions */
+    function render() {
+      gameEl.innerHTML = '';
+      tubes.forEach((tube, idx) => {
+        const tubeEl = document.createElement('div');
+        tubeEl.className = 'tube';
+        tubeEl.dataset.index = idx;
+        if(idx === selectedIndex) tubeEl.classList.add('selected');
+        tubeEl.addEventListener('click', () => handleTubeClick(idx));
+        tube.forEach(color => {
+          const seg = document.createElement('div');
+          seg.className = 'segment';
+          seg.style.background = color;
+          tubeEl.appendChild(seg);
+        });
+        /* placeholders for empty space */
+        const placeholders = CAPACITY - tube.length;
+        for(let i=0;i<placeholders;i++) {
+          const ph = document.createElement('div');
+          ph.className = 'segment';
+          ph.style.background = 'transparent';
+          tubeEl.appendChild(ph);
+        }
+        gameEl.appendChild(tubeEl);
+      });
+      movesEl.textContent = 'Moves: ' + moves;
+    }
+
+    function handleTubeClick(idx) {
+      if(selectedIndex === null) {
+        /* select source */
+        if(tubes[idx].length === 0) return; // don't select empty
+        selectedIndex = idx;
+        render();
+      } else {
+        if(idx === selectedIndex) {
+          clearSelection();
+          return;
+        }
+        /* attempt pour */
+        const success = attemptPour(selectedIndex, idx);
+        if(!success) {
+          shake(idx);
+        }
+        clearSelection();
+        render();
+        if(checkWin()) showWin();
+      }
+    }
+
+    function attemptPour(from, to) {
+      const source = tubes[from];
+      const dest = tubes[to];
+      if(source.length === 0) return false;
+      if(dest.length >= CAPACITY) return false;
+
+      const topColor = source[source.length - 1];
+      if(dest.length > 0 && dest[dest.length - 1] !== topColor) return false;
+
+      /* count contiguous block */
+      let block = 0;
+      for(let i = source.length - 1; i >= 0 && source[i] === topColor; i--) block++;
+      const space = CAPACITY - dest.length;
+      const moveCount = Math.min(block, space);
+      if(moveCount === 0) return false;
+
+      /* push history */
+      history.push({tubes: deepCopy(tubes), moves});
+      /* perform move */
+      for(let i=0;i<moveCount;i++) {
+        dest.push(source.pop());
+      }
+      moves++;
+      return true;
+    }
+
+    function checkWin() {
+      return tubes.every(t => t.length === 0 || (new Set(t).size === 1));
+    }
+
+    function showWin() {
+      finalMovesEl.textContent = moves;
+      overlay.classList.add('show');
+    }
+
+    function undoMove() {
+      if(history.length === 0) return;
+      const prev = history.pop();
+      tubes = deepCopy(prev.tubes);
+      moves = prev.moves;
+      clearSelection();
+      render();
+    }
+
+    function restart() {
+      tubes = deepCopy(INITIAL_TUBES);
+      history = [];
+      moves = 0;
+      clearSelection();
+      render();
+    }
+
+    function clearSelection() {
+      selectedIndex = null;
+    }
+
+    function shake(idx) {
+      const tubeEl = gameEl.children[idx];
+      tubeEl.classList.add('shake');
+      setTimeout(() => tubeEl.classList.remove('shake'), 400);
+    }
+
+    function deepCopy(obj) {
+      return JSON.parse(JSON.stringify(obj));
+    }
+  </script>
+</body>
+</html>
