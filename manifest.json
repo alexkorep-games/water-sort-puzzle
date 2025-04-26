@@ -1,0 +1,22 @@
+{
+  "name": "Color Liquid Sort Puzzle",
+  "short_name": "ColorSort",
+  "description": "A fun puzzle game sorting colored liquids in tubes.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#6e8efb",
+  "theme_color": "#8e44ad",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icons/icon-192x192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icons/icon-512x512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}
