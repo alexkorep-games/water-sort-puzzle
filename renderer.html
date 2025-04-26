@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>HTML Renderer</title>
+<style>
+  #htmlInput {
+    width: 80%;
+    height: 200px;
+  }
+  #renderFrame {
+    width: 100%;
+    height: 500px;
+    border: 1px solid #ccc;
+  }
+</style>
+</head>
+<body>
+
+  <h1>Paste HTML Below</h1>
+  <textarea id="htmlInput"></textarea><br>
+  <button onclick="renderHTML()">Render HTML</button>
+
+  <h2>Rendered Output</h2>
+  <iframe id="renderFrame"></iframe>
+
+  <script>
+    function renderHTML() {
+      const htmlContent = document.getElementById('htmlInput').value;
+      const iframe = document.getElementById('renderFrame');
+
+      // Modern browsers support srcdoc
+      if ('srcdoc' in iframe) {
+        iframe.srcdoc = htmlContent;
+      } else {
+        // Fallback for older browsers
+        const blob = new Blob([htmlContent], { type: 'text/html' });
+        iframe.src = URL.createObjectURL(blob);
+        iframe.onload = function() {
+          URL.revokeObjectURL(iframe.src); // Clean up the URL object
+        };
+      }
+    }
+  </script>
+
+</body>
+</html>
