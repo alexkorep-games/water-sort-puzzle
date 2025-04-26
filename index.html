@@ -285,10 +285,12 @@
       }
 
       /**
-       * Generates a random initial state where:
-       * 1. Tubes are either completely full or completely empty.
-       * 2. Full tubes are placed to the left, empty to the right.
-       * 3. No color appears 3 times consecutively in any tube.
+       * Generates a random initial state by:
+       * 1. Creating a pool of all required liquid blocks (numColors * TUBE_CAPACITY).
+       * 2. Shuffling this pool thoroughly.
+       * 3. Filling the first 'numColors' tubes completely using the shuffled blocks.
+       * 4. Leaving the remaining 'numEmpty' tubes empty.
+       * This creates a random distribution in the filled tubes.
        * @param {number} numColors - Number of distinct colors to use.
        * @param {number} numEmpty - Number of empty tubes.
        * @returns {{initialState: Array<Array<string>>, targetMoves: number}}
@@ -312,103 +314,55 @@
         }
 
         // 2. Shuffle the pool - Fisher-Yates (Knuth) Shuffle
+        // Ensures random distribution when filling tubes
         for (let i = blockPool.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [blockPool[i], blockPool[j]] = [blockPool[j], blockPool[i]];
         }
 
-        // 3. Distribute blocks into full tubes with constraints
-        let initialState = Array.from({ length: numColors }, () => []);
-        let currentPoolIndex = 0; // Index for iterating through the shuffled pool
+        // 3. Initialize tubes (all empty initially)
+        let initialState = Array.from({ length: totalTubes }, () => []);
 
-        // Helper to check the 3-consecutive constraint
-        function checkConsecutiveConstraint(tube, newColor) {
-          const len = tube.length;
-          if (len < 2) return true; // Cannot violate with 0 or 1 existing blocks
-          // Check if the top two existing blocks are the same as the new color
-          return !(tube[len - 1] === newColor && tube[len - 2] === newColor);
-        }
-
+        // 4. Distribute blocks sequentially from the shuffled pool into the first 'numColors' tubes
+        let currentPoolIndex = 0;
         for (let tubeIdx = 0; tubeIdx < numColors; tubeIdx++) {
-          while (initialState[tubeIdx].length < TUBE_CAPACITY) {
-             // Error check: ensure we still have blocks
+          // Fill each of the first 'numColors' tubes completely
+          for (let j = 0; j < TUBE_CAPACITY; j++) {
+            // Safety check: ensure pool isn't unexpectedly empty
             if (currentPoolIndex >= blockPool.length) {
               console.error(
-                "Error: Not enough blocks in pool to fill tubes. Pool exhausted."
+                "Error: Block pool exhausted prematurely during generation!"
               );
-               // Pad remaining tubes (full and empty) and return error state
-               while(initialState[tubeIdx].length < TUBE_CAPACITY) initialState[tubeIdx].push('gray'); // Pad with default color
-               for (let i = tubeIdx + 1; i < numColors; i++) { initialState.push(Array(TUBE_CAPACITY).fill('gray')); }
-               for (let i = 0; i < numEmpty; i++) { initialState.push([]); }
-               return { initialState: initialState, targetMoves: 0 }; // Return potentially broken state
+              // Handle error, maybe fill rest with a default or break
+              initialState[tubeIdx].push("gray"); // Add a placeholder if error occurs
+            } else {
+              initialState[tubeIdx].push(blockPool[currentPoolIndex]);
+              currentPoolIndex++;
             }
-
-            let placed = false;
-            let checkIndex = currentPoolIndex; // Start checking from the current block
-
-            // Find the next available block that satisfies the constraint
-            while (checkIndex < blockPool.length) {
-              const potentialBlock = blockPool[checkIndex];
-              if (
-                checkConsecutiveConstraint(initialState[tubeIdx], potentialBlock)
-              ) {
-                // Found a valid block!
-                // Swap it to the currentPoolIndex position if it's not already there
-                if (checkIndex !== currentPoolIndex) {
-                  [blockPool[currentPoolIndex], blockPool[checkIndex]] = [
-                    blockPool[checkIndex],
-                    blockPool[currentPoolIndex],
-                  ];
-                }
-                // Place the block from currentPoolIndex
-                initialState[tubeIdx].push(blockPool[currentPoolIndex]);
-                currentPoolIndex++; // Move to the next block in the pool for the *next* placement attempt
-                placed = true;
-                break; // Exit the inner while loop (search loop) and move to next slot
-              }
-              checkIndex++; // Check the next block in the pool
-            } // End of constraint checking loop
-
-            if (!placed) {
-              // Fallback: No block from currentPoolIndex onwards satisfies the constraint for this tube/slot.
-              // This implies all remaining blocks would violate the 3-in-a-row rule here.
-              // Place the block at currentPoolIndex anyway and log a warning.
-              const fallbackBlock = blockPool[currentPoolIndex];
-              console.warn(
-                `Constraint unavoidable at tube ${tubeIdx}, position ${initialState[tubeIdx].length}. Placing block ${fallbackBlock}. Consider using fewer colors or larger capacity.`
-              );
-              initialState[tubeIdx].push(fallbackBlock);
-              currentPoolIndex++; // Consume the block from the pool
-            }
-            // Continue the outer while loop (initialState[tubeIdx].length < TUBE_CAPACITY)
-          } // End of while loop for filling one tube
-        } // End of for loop iterating through tubes
-
-        // 4. Add empty tubes (Requirement 1 & 2)
-        for (let i = 0; i < numEmpty; i++) {
-          initialState.push([]);
+          }
         }
 
-        // 5. Sorting (Full Left, Empty Right) is implicit due to order of creation/addition.
+        // 5. The remaining tubes (from index numColors to totalTubes - 1) are already empty
+        //    as initialized in step 3.
 
-        // Final check (debugging)
+        // Optional final check (for debugging generation logic)
         if (currentPoolIndex !== blockPool.length) {
           console.warn(
-            `Generation finished, but ${
+            `Generation logic warning: ${
               blockPool.length - currentPoolIndex
-            } blocks remain unused in the pool. Pool size: ${
+            } blocks remaining in pool after filling tubes. Pool size: ${
               blockPool.length
             }, Used: ${currentPoolIndex}`
           );
         } else {
-             console.log("Generated initial state successfully. All blocks placed.");
+          console.log(
+            `Generated random state: ${numColors} tubes filled randomly, ${numEmpty} empty.`
+          );
         }
 
-        // 6. Return state. Target moves are not calculated by this method.
-        return { initialState: initialState, targetMoves: 0 }; // targetMoves is 0
+        // 6. Return the state. Target moves are not relevant for this generation method.
+        return { initialState: initialState, targetMoves: 0 };
       }
-
-      // (Removed isSolved function as it's not used by the new generator)
 
       function initGame(difficulty = currentDifficulty) {
         console.log(`Initializing Game - Difficulty: ${difficulty}`);
@@ -416,15 +370,19 @@
         const settings =
           DIFFICULTY_SETTINGS[difficulty] || DIFFICULTY_SETTINGS.medium;
 
-        // Generate the random state using the new method
-        const { initialState, targetMoves: generatedTargetMoves } = // generatedTargetMoves will be 0
+        // *** Use the NEW generator function ***
+        const {
+          initialState,
+          targetMoves: generatedTargetMoves,
+        } = // generatedTargetMoves will be 0
           generateRandomInitialState(settings.colors, NUM_EMPTY_TUBES);
 
         // Store the initial state for Restart
+        // Use deep copy to prevent modification issues
         currentGameInitialState = JSON.parse(JSON.stringify(initialState));
         targetMoves = generatedTargetMoves; // Store target moves (will be 0)
 
-        // Set the active game state
+        // Set the active game state (deep copy again)
         tubes = JSON.parse(JSON.stringify(initialState));
 
         selectedTubeIndex = -1;
@@ -441,10 +399,19 @@
         updateUndoButton();
       }
 
+      // Rest of your JavaScript code (restartGame, renderTubes, handleTubeClick, etc.)
+      // remains the same as it interacts with the 'tubes' array structure,
+      // which is correctly populated by the new generateRandomInitialState function.
+
+      // ... (keep all other functions as they were in your original code) ...
+
       function restartGame() {
         console.log("Restarting current game.");
-        if (currentGameInitialState.length === 0) {
-          console.error("No initial state saved. Cannot restart.");
+        if (!currentGameInitialState || currentGameInitialState.length === 0) {
+          // Added null check
+          console.error(
+            "No initial state saved. Cannot restart. Generating new game."
+          );
           initGame(); // Generate a new game if restart fails
           return;
         }
@@ -477,23 +444,26 @@
             const liquidSegment = document.createElement("div");
             liquidSegment.classList.add("liquid");
             liquidSegment.style.backgroundColor = COLORS[color] || "#cccccc"; // Default color if not found
+            // liquidSegment.textContent = color; // Optional: for debugging color names
             tubeElement.appendChild(liquidSegment);
           });
 
-          // Fill remaining space visually - handled by flex-direction: column-reverse and liquid height
+          // Add visual empty space above the liquid if the tube is not full
           const emptySpaces = TUBE_CAPACITY - tubeData.length;
-           if (emptySpaces > 0 && emptySpaces < TUBE_CAPACITY) {
-               // This case should ideally not happen with the new generator (only full or empty)
-               // But good for robustness during gameplay
-                for (let i = 0; i < emptySpaces; i++) {
-                    const emptySegment = document.createElement("div");
-                    emptySegment.classList.add("liquid");
-                    emptySegment.style.height = `var(--liquid-height)`;
-                    emptySegment.style.backgroundColor = "transparent";
-                    tubeElement.appendChild(emptySegment);
-                }
-           }
-
+          // This part is less critical now as initial tubes are full or empty,
+          // but needed during gameplay
+          if (emptySpaces > 0 && emptySpaces < TUBE_CAPACITY) {
+            for (let i = 0; i < emptySpaces; i++) {
+              const emptySegment = document.createElement("div");
+              emptySegment.classList.add("liquid"); // Use liquid class for sizing
+              emptySegment.style.height = `var(--liquid-height)`;
+              emptySegment.style.backgroundColor = "transparent"; // Make it invisible
+              emptySegment.style.border = "none"; // Ensure no accidental borders
+              // Prepend empty spaces visually because of flex-direction: column-reverse
+              // However, adding to the end of the element works with flex-reverse
+              tubeElement.appendChild(emptySegment);
+            }
+          }
 
           if (index === selectedTubeIndex) {
             tubeElement.classList.add("selected");
@@ -676,15 +646,13 @@
       }
 
       // --- Event Listeners ---
-      restartBtn.addEventListener("click", restartGame); // Use the new restart function
+      restartBtn.addEventListener("click", restartGame);
       undoBtn.addEventListener("click", undoMove);
-      // Update New Game button to allow selecting difficulty (optional, for now just restarts with current)
-      // For simplicity, New Game just uses the current difficulty setting.
       newGameBtn.addEventListener("click", () => initGame(currentDifficulty));
 
       // --- Initial Game Load ---
       window.onload = () => {
-        initGame(); // Initialize the game with default difficulty
+        initGame(); // Initialize the game with default difficulty using the new generator
       };
     </script>
   </body>
