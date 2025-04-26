@@ -124,7 +124,9 @@
         justify-content: center; /* Center buttons when wrapped */
       }
 
-      button {
+      /* Style buttons and select dropdown similarly */
+      button,
+      select#difficultySelect {
         padding: 10px 20px;
         font-size: 1em;
         cursor: pointer;
@@ -135,9 +137,11 @@
         transition: background-color 0.2s ease, transform 0.1s ease;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         margin-bottom: 5px; /* Add space below buttons if they wrap */
+        font-family: sans-serif; /* Ensure font consistency */
       }
 
-      button:hover {
+      button:hover,
+      select#difficultySelect:hover {
         background-color: #9b59b6;
       }
       button:active {
@@ -146,6 +150,19 @@
       button:disabled {
         background-color: #bdc3c7;
         cursor: not-allowed;
+      }
+
+      /* Style for the label */
+      .controls label {
+        color: white;
+        font-weight: bold;
+        margin-right: -5px; /* Adjust spacing slightly */
+        margin-bottom: 5px; /* Align with button margin */
+      }
+
+      /* Specific adjustment for select dropdown padding if needed */
+      select#difficultySelect {
+        padding: 10px 15px; /* Adjust padding slightly for select appearance */
       }
 
       .win-message {
@@ -177,6 +194,25 @@
       }
 
       /* Basic responsiveness */
+      @media (max-width: 700px) {
+        /* Adjusted breakpoint for better layout */
+        .controls {
+          flex-direction: column; /* Stack controls vertically */
+          align-items: stretch; /* Make controls take full width */
+          gap: 10px;
+        }
+        .controls label {
+          text-align: center;
+          margin-right: 0; /* Reset margin */
+        }
+        button,
+        select#difficultySelect {
+          width: 100%; /* Make buttons/select full width */
+          max-width: 250px; /* Optional max-width */
+          margin: 0 auto 10px auto; /* Center and add bottom margin */
+        }
+      }
+
       @media (max-width: 600px) {
         :root {
           --tube-width: 50px;
@@ -221,10 +257,17 @@
         <!-- Tubes will be generated here by JavaScript -->
       </div>
       <div class="controls">
-        <!-- Removed Level Selector -->
+        <!-- Added Difficulty Selector -->
+        <label for="difficultySelect">Difficulty:</label>
+        <select id="difficultySelect">
+          <option value="easy">Easy</option>
+          <option value="medium" selected>Medium</option>
+          <!-- Default -->
+          <option value="hard">Hard</option>
+          <option value="expert">Expert</option>
+        </select>
         <button id="undoBtn">Undo</button>
         <button id="restartBtn">Restart</button>
-        <!-- Added New Game Button -->
         <button id="newGameBtn">New Game</button>
       </div>
       <div id="winMessage" class="win-message" style="display: none">
@@ -235,11 +278,12 @@
     <script>
       const tubesContainer = document.getElementById("tubesContainer");
       const movesSpan = document.getElementById("moves");
-      const targetMovesSpan = document.getElementById("targetMoves"); // New element reference
+      const targetMovesSpan = document.getElementById("targetMoves");
       const undoBtn = document.getElementById("undoBtn");
       const restartBtn = document.getElementById("restartBtn");
-      const newGameBtn = document.getElementById("newGameBtn"); // New element reference
+      const newGameBtn = document.getElementById("newGameBtn");
       const winMessageDiv = document.getElementById("winMessage");
+      const difficultySelect = document.getElementById("difficultySelect"); // Get reference to dropdown
 
       const TUBE_CAPACITY = 4;
       const COLORS = {
@@ -261,16 +305,16 @@
 
       // --- Difficulty Settings ---
       const DIFFICULTY_SETTINGS = {
-        easy: { colors: 4 },
-        medium: { colors: 6 },
-        hard: { colors: 8 },
-        expert: { colors: 10 },
+        easy: { colors: 4 }, // Easier: 4 colors + 2 empty = 6 tubes
+        medium: { colors: 6 }, // Default: 6 colors + 2 empty = 8 tubes
+        hard: { colors: 8 }, // Harder: 8 colors + 2 empty = 10 tubes
+        expert: { colors: 10 }, // Expert: 10 colors + 2 empty = 12 tubes
       };
-      let currentDifficulty = "medium"; // Default difficulty
+      let currentDifficulty = "medium"; // Default difficulty state variable
 
       let tubes = []; // Array of arrays, representing tubes and their colors bottom-to-top
       let currentGameInitialState = []; // To store the state for the restart button
-      let targetMoves = 0; // Target moves concept removed from generator
+      let targetMoves = 0; // Not used for scoring, just for reference
       let selectedTubeIndex = -1;
       let moves = 0;
       let history = []; // To store game states for undo
@@ -285,17 +329,14 @@
       }
 
       /**
-       * Generates a random initial state by:
-       * 1. Creating a pool of all required liquid blocks (numColors * TUBE_CAPACITY).
-       * 2. Shuffling this pool thoroughly.
-       * 3. Filling the first 'numColors' tubes completely using the shuffled blocks.
-       * 4. Leaving the remaining 'numEmpty' tubes empty.
-       * This creates a random distribution in the filled tubes.
+       * Generates a random initial state by shuffling a pool of liquid blocks
+       * and distributing them into the required number of tubes based on difficulty.
        * @param {number} numColors - Number of distinct colors to use.
        * @param {number} numEmpty - Number of empty tubes.
        * @returns {{initialState: Array<Array<string>>, targetMoves: number}}
        */
       function generateRandomInitialState(numColors, numEmpty) {
+        // Clamp numColors based on available colors
         if (numColors > COLOR_NAMES.length) {
           console.warn(
             `Requested ${numColors} colors, but only ${COLOR_NAMES.length} are defined. Using ${COLOR_NAMES.length}.`
@@ -305,7 +346,6 @@
         const totalTubes = numColors + numEmpty;
         const availableColors = COLOR_NAMES.slice(0, numColors);
 
-        // 1. Create the pool of all liquid blocks
         let blockPool = [];
         for (const color of availableColors) {
           for (let i = 0; i < TUBE_CAPACITY; i++) {
@@ -313,121 +353,111 @@
           }
         }
 
-        // 2. Shuffle the pool - Fisher-Yates (Knuth) Shuffle
-        // Ensures random distribution when filling tubes
+        // Fisher-Yates Shuffle
         for (let i = blockPool.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [blockPool[i], blockPool[j]] = [blockPool[j], blockPool[i]];
         }
 
-        // 3. Initialize tubes (all empty initially)
         let initialState = Array.from({ length: totalTubes }, () => []);
-
-        // 4. Distribute blocks sequentially from the shuffled pool into the first 'numColors' tubes
         let currentPoolIndex = 0;
         for (let tubeIdx = 0; tubeIdx < numColors; tubeIdx++) {
-          // Fill each of the first 'numColors' tubes completely
           for (let j = 0; j < TUBE_CAPACITY; j++) {
-            // Safety check: ensure pool isn't unexpectedly empty
-            if (currentPoolIndex >= blockPool.length) {
-              console.error(
-                "Error: Block pool exhausted prematurely during generation!"
-              );
-              // Handle error, maybe fill rest with a default or break
-              initialState[tubeIdx].push("gray"); // Add a placeholder if error occurs
-            } else {
+            if (currentPoolIndex < blockPool.length) {
               initialState[tubeIdx].push(blockPool[currentPoolIndex]);
               currentPoolIndex++;
+            } else {
+              console.error("Block pool exhausted during generation!");
+              break; // Avoid infinite loop or errors
             }
+          }
+          if (currentPoolIndex >= blockPool.length && tubeIdx < numColors - 1) {
+            console.error("Block pool exhausted prematurely!");
+            break; // Avoid trying to fill more tubes than possible
           }
         }
 
-        // 5. The remaining tubes (from index numColors to totalTubes - 1) are already empty
-        //    as initialized in step 3.
-
-        // Optional final check (for debugging generation logic)
+        // Log warning if pool wasn't fully used (shouldn't happen with correct logic)
         if (currentPoolIndex !== blockPool.length) {
           console.warn(
-            `Generation logic warning: ${
-              blockPool.length - currentPoolIndex
-            } blocks remaining in pool after filling tubes. Pool size: ${
-              blockPool.length
-            }, Used: ${currentPoolIndex}`
-          );
-        } else {
-          console.log(
-            `Generated random state: ${numColors} tubes filled randomly, ${numEmpty} empty.`
+            `Pool Mismatch: Pool size ${blockPool.length}, Used ${currentPoolIndex}`
           );
         }
 
-        // 6. Return the state. Target moves are not relevant for this generation method.
+        console.log(
+          `Generated random state: ${numColors} colors, ${numEmpty} empty tubes. Total: ${totalTubes} tubes.`
+        );
+        // Target moves are not calculated by this generator
         return { initialState: initialState, targetMoves: 0 };
       }
 
-      function initGame(difficulty = currentDifficulty) {
+      function initGame(difficulty) {
         console.log(`Initializing Game - Difficulty: ${difficulty}`);
-        currentDifficulty = difficulty; // Update current difficulty
-        const settings =
-          DIFFICULTY_SETTINGS[difficulty] || DIFFICULTY_SETTINGS.medium;
+        // Validate and set difficulty
+        currentDifficulty = DIFFICULTY_SETTINGS[difficulty]
+          ? difficulty
+          : "medium"; // Fallback to medium
+        difficultySelect.value = currentDifficulty; // Ensure dropdown matches state
 
-        // *** Use the NEW generator function ***
-        const {
-          initialState,
-          targetMoves: generatedTargetMoves,
-        } = // generatedTargetMoves will be 0
-          generateRandomInitialState(settings.colors, NUM_EMPTY_TUBES);
+        const settings = DIFFICULTY_SETTINGS[currentDifficulty];
+        if (!settings) {
+          console.error(
+            `Invalid difficulty setting: ${currentDifficulty}. Using medium.`
+          );
+          settings = DIFFICULTY_SETTINGS.medium;
+          currentDifficulty = "medium";
+          difficultySelect.value = "medium";
+        }
 
-        // Store the initial state for Restart
-        // Use deep copy to prevent modification issues
+        const { initialState } = generateRandomInitialState(
+          settings.colors,
+          NUM_EMPTY_TUBES
+        );
+
+        // Store initial state for Restart (deep copy)
         currentGameInitialState = JSON.parse(JSON.stringify(initialState));
-        targetMoves = generatedTargetMoves; // Store target moves (will be 0)
 
-        // Set the active game state (deep copy again)
+        // Set the active game state (deep copy)
         tubes = JSON.parse(JSON.stringify(initialState));
 
         selectedTubeIndex = -1;
         moves = 0;
         history = []; // Clear history
         gameWon = false;
-        winMessageDiv.style.display = "none"; // Hide win message
+        winMessageDiv.style.display = "none";
 
-        updateMovesDisplay(); // Update moves count (0)
-        updateTargetMovesDisplay(); // Update target/difficulty display
+        updateMovesDisplay();
+        updateDifficultyDisplay(); // Use the new function name for clarity
 
         saveState(); // Save the initial state for undo
         renderTubes();
         updateUndoButton();
       }
 
-      // Rest of your JavaScript code (restartGame, renderTubes, handleTubeClick, etc.)
-      // remains the same as it interacts with the 'tubes' array structure,
-      // which is correctly populated by the new generateRandomInitialState function.
-
-      // ... (keep all other functions as they were in your original code) ...
-
       function restartGame() {
-        console.log("Restarting current game.");
+        console.log(
+          "Restarting current game at difficulty:",
+          currentDifficulty
+        );
         if (!currentGameInitialState || currentGameInitialState.length === 0) {
-          // Added null check
           console.error(
             "No initial state saved. Cannot restart. Generating new game."
           );
-          initGame(); // Generate a new game if restart fails
+          // Start a new game with the *current* difficulty if restart fails
+          initGame(currentDifficulty);
           return;
         }
-        // Restore the active state from the saved initial state
         tubes = JSON.parse(JSON.stringify(currentGameInitialState));
 
-        // Reset game variables
         selectedTubeIndex = -1;
         moves = 0;
-        history = []; // Clear history
+        history = [];
         gameWon = false;
         winMessageDiv.style.display = "none";
 
-        updateMovesDisplay(); // Reset moves display
-        updateTargetMovesDisplay(); // Update target/difficulty display (stays same)
-        saveState(); // Save the restarted initial state for undo
+        updateMovesDisplay();
+        updateDifficultyDisplay(); // Display correct difficulty
+        saveState();
         renderTubes();
         updateUndoButton();
       }
@@ -439,31 +469,15 @@
           tubeElement.classList.add("tube");
           tubeElement.dataset.index = index; // Store index for click handling
 
-          // Add liquids from bottom up
           tubeData.forEach((color) => {
             const liquidSegment = document.createElement("div");
             liquidSegment.classList.add("liquid");
-            liquidSegment.style.backgroundColor = COLORS[color] || "#cccccc"; // Default color if not found
-            // liquidSegment.textContent = color; // Optional: for debugging color names
+            liquidSegment.style.backgroundColor = COLORS[color] || "#cccccc";
             tubeElement.appendChild(liquidSegment);
           });
 
-          // Add visual empty space above the liquid if the tube is not full
-          const emptySpaces = TUBE_CAPACITY - tubeData.length;
-          // This part is less critical now as initial tubes are full or empty,
-          // but needed during gameplay
-          if (emptySpaces > 0 && emptySpaces < TUBE_CAPACITY) {
-            for (let i = 0; i < emptySpaces; i++) {
-              const emptySegment = document.createElement("div");
-              emptySegment.classList.add("liquid"); // Use liquid class for sizing
-              emptySegment.style.height = `var(--liquid-height)`;
-              emptySegment.style.backgroundColor = "transparent"; // Make it invisible
-              emptySegment.style.border = "none"; // Ensure no accidental borders
-              // Prepend empty spaces visually because of flex-direction: column-reverse
-              // However, adding to the end of the element works with flex-reverse
-              tubeElement.appendChild(emptySegment);
-            }
-          }
+          // Fill remaining space visually if not full (handled by CSS flex generally)
+          // No need for explicit empty divs if using flex-direction: column-reverse
 
           if (index === selectedTubeIndex) {
             tubeElement.classList.add("selected");
@@ -475,39 +489,33 @@
       }
 
       function handleTubeClick(event) {
-        if (gameWon) return; // Don't allow moves after winning
+        if (gameWon) return;
 
         const clickedIndex = parseInt(event.currentTarget.dataset.index);
 
         if (selectedTubeIndex === -1) {
-          // First click: Select source tube
           if (tubes[clickedIndex].length > 0) {
-            // Can only select non-empty tubes
             selectedTubeIndex = clickedIndex;
-            renderTubes(); // Re-render to show selection
+            renderTubes();
           }
         } else {
-          // Second click: Select destination tube or deselect
           if (clickedIndex === selectedTubeIndex) {
-            // Clicked the same tube again: Deselect
             selectedTubeIndex = -1;
             renderTubes();
           } else {
-            // Attempt to pour
             if (canPour(selectedTubeIndex, clickedIndex)) {
-              saveState(); // Save state *before* making the move
+              saveState();
               doPour(selectedTubeIndex, clickedIndex);
               moves++;
               updateMovesDisplay();
-              selectedTubeIndex = -1; // Deselect after pour
+              selectedTubeIndex = -1;
               renderTubes();
-              updateUndoButton(); // Update undo button state after move
+              updateUndoButton();
               checkWinCondition();
             } else {
-              // Invalid move - maybe add visual feedback later (e.g., shake)
               console.log("Invalid move");
-              selectedTubeIndex = -1; // Deselect if move is invalid
-              renderTubes(); // Re-render to remove selection highlight
+              selectedTubeIndex = -1;
+              renderTubes();
             }
           }
         }
@@ -521,13 +529,12 @@
         const sourceTube = tubes[sourceIndex];
         const destTube = tubes[destIndex];
 
-        if (sourceTube.length === 0) return false; // Cannot pour from empty tube
-        if (destTube.length >= TUBE_CAPACITY) return false; // Cannot pour into full tube
+        if (sourceTube.length === 0) return false;
+        if (destTube.length >= TUBE_CAPACITY) return false;
 
         const topColorSource = getTopColor(sourceTube);
         const topColorDest = getTopColor(destTube);
 
-        // Can pour if destination is empty OR top colors match
         return topColorDest === null || topColorSource === topColorDest;
       }
 
@@ -536,123 +543,122 @@
         const destTube = tubes[destIndex];
         const colorToMove = getTopColor(sourceTube);
 
-        if (!colorToMove) return; // Should not happen if canPour is checked, but good practice
+        if (!colorToMove) return;
 
-        // Find how many blocks of the same color are at the top of the source tube
         let pourAmount = 0;
         for (let i = sourceTube.length - 1; i >= 0; i--) {
           if (sourceTube[i] === colorToMove) {
             pourAmount++;
           } else {
-            break; // Stop if a different color is encountered
+            break;
           }
         }
 
-        // Limit pour amount by available space in destination tube
         const availableSpace = TUBE_CAPACITY - destTube.length;
         pourAmount = Math.min(pourAmount, availableSpace);
 
-        // Perform the transfer
         for (let i = 0; i < pourAmount; i++) {
-           // Check if source tube is empty before popping (safety)
-           if (sourceTube.length === 0) {
-               console.error("Attempted to pop from empty source tube during pour loop.");
-               break;
-           }
+          if (sourceTube.length === 0) {
+            console.error("Source tube became empty unexpectedly during pour.");
+            break;
+          }
           destTube.push(sourceTube.pop());
         }
       }
 
       function checkWinCondition() {
-        if (gameWon) return; // Already won
+        if (gameWon) return;
 
         for (const tube of tubes) {
           if (tube.length > 0 && tube.length < TUBE_CAPACITY) {
-            return; // Partially filled tube exists
+            return; // Found a partially filled tube
           }
           if (tube.length === TUBE_CAPACITY) {
             const firstColor = tube[0];
             for (let i = 1; i < tube.length; i++) {
               if (tube[i] !== firstColor) {
-                return; // Found a different color in a full tube
+                return; // Found a mixed full tube
               }
             }
           }
-          // Empty tubes (tube.length === 0) are fine
+          // Empty tubes are ok
         }
 
-        // If we reach here, all non-empty tubes are full of a single color
         console.log("Win condition met!");
         gameWon = true;
-        winMessageDiv.textContent = `Solved in ${moves} moves!`; // Show moves count
+        winMessageDiv.textContent = `Solved in ${moves} moves!`;
         winMessageDiv.style.display = "block";
         updateUndoButton(); // Disable undo after winning
-
-        // Optional: Automatically start a new game after a delay
-        // setTimeout(() => {
-        //   winMessageDiv.style.display = "none";
-        // }, 3000);
       }
 
       function updateMovesDisplay() {
         movesSpan.textContent = `Moves: ${moves}`;
       }
 
-      // --- Updated function to display difficulty instead of target moves ---
-      function updateTargetMovesDisplay() {
-        // Capitalize first letter of difficulty
-        const difficultyDisplay = currentDifficulty.charAt(0).toUpperCase() + currentDifficulty.slice(1);
+      // Updated function to specifically display difficulty
+      function updateDifficultyDisplay() {
+        const difficultyDisplay =
+          currentDifficulty.charAt(0).toUpperCase() +
+          currentDifficulty.slice(1);
         targetMovesSpan.textContent = `Difficulty: ${difficultyDisplay}`;
       }
 
       // --- Undo Functionality ---
 
       function saveState() {
-        // Save a deep copy of the current state
         history.push(
           JSON.parse(JSON.stringify({ tubes: tubes, moves: moves }))
         );
-         // Limit history size to prevent memory issues (e.g., keep last 50 states)
-         const MAX_HISTORY = 50;
-         if (history.length > MAX_HISTORY) {
-             history.shift(); // Remove the oldest state
-         }
+        const MAX_HISTORY = 50;
+        if (history.length > MAX_HISTORY) {
+          history.shift();
+        }
       }
 
       function undoMove() {
-        if (gameWon) return; // Cannot undo after winning
+        if (gameWon) return;
         if (history.length > 1) {
-          // Need at least the initial state + one move to undo
-          history.pop(); // Remove the current state
-          const previousState = history[history.length - 1]; // Get the state before the last move
+          history.pop();
+          const previousState = history[history.length - 1];
 
-          // Restore the previous state (deep copy)
           tubes = JSON.parse(JSON.stringify(previousState.tubes));
           moves = previousState.moves;
 
-          selectedTubeIndex = -1; // Reset selection
+          selectedTubeIndex = -1;
           renderTubes();
           updateMovesDisplay();
           updateUndoButton();
-          winMessageDiv.style.display = "none"; // Hide win message if it was shown erroneously
-          gameWon = false; // Ensure game isn't marked as won
+          winMessageDiv.style.display = "none";
+          gameWon = false;
         } else {
           console.log("Cannot undo further.");
         }
       }
 
       function updateUndoButton() {
-        undoBtn.disabled = history.length <= 1 || gameWon; // Disable if only initial state left or game won
+        undoBtn.disabled = history.length <= 1 || gameWon;
       }
 
       // --- Event Listeners ---
-      restartBtn.addEventListener("click", restartGame);
+      restartBtn.addEventListener("click", restartGame); // Restart keeps current difficulty
       undoBtn.addEventListener("click", undoMove);
-      newGameBtn.addEventListener("click", () => initGame(currentDifficulty));
+
+      // New Game button uses the *currently selected* difficulty
+      newGameBtn.addEventListener("click", () => {
+        const selectedDifficulty = difficultySelect.value;
+        initGame(selectedDifficulty);
+      });
+
+      // Difficulty dropdown change listener
+      difficultySelect.addEventListener("change", (event) => {
+        const newDifficulty = event.target.value;
+        initGame(newDifficulty); // Start a new game immediately with the new difficulty
+      });
 
       // --- Initial Game Load ---
       window.onload = () => {
-        initGame(); // Initialize the game with default difficulty using the new generator
+        // Initialize the game with the default selected difficulty from the dropdown
+        initGame(difficultySelect.value);
       };
     </script>
   </body>
