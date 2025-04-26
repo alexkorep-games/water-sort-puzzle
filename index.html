@@ -3,6 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#8e44ad" />
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png" />
+    <!-- End PWA Meta Tags -->
+
     <title>Color Liquid Sort Puzzle - Shuffled</title>
     <style>
       :root {
@@ -661,5 +668,28 @@
         initGame(difficultySelect.value);
       };
     </script>
+
+    <!-- PWA Registration Script -->
+    <script>
+      // Register Service Worker
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker
+            .register("./sw.js")
+            .then((registration) => {
+              console.log("Service Worker registered: ", registration);
+            })
+            .catch((registrationError) => {
+              console.log(
+                "Service Worker registration failed: ",
+                registrationError
+              );
+            });
+        });
+      } else {
+        console.log("Service Worker is not supported by this browser.");
+      }
+    </script>
+    <!-- End PWA Registration Script -->
   </body>
 </html>
