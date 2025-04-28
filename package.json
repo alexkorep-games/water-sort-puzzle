@@ -1,0 +1,11 @@
+{
+  "name": "water-sort-puzzle",
+  "version": "1.0.0",
+  "description": "",
+  "type": "module",
+  "scripts": {
+    "test": "node ./water-sort-solver.tests.js"
+  },
+  "author": "",
+  "license": "ISC"
+}
