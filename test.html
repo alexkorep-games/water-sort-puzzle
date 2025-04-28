@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Elite Inspired Shooter</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            color: #0ff; /* Cyan */
+            font-family: monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            touch-action: none; /* Prevent default touch actions like scrolling */
+        }
+        canvas {
+            display: block;
+            background-color: #000;
+            /* Optional: Add a border to see canvas edges */
+            /* border: 1px solid #0ff; */
+            image-rendering: pixelated; /* Maintain sharp pixels */
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // --- Configuration ---
+        const GAME_WIDTH = 360; // Smaller base width for pixel art feel
+        const GAME_HEIGHT = 640; // Portrait orientation
+        const HUD_HEIGHT = 120;
+        const WORLD_WIDTH = 1500; // Wider than screen for exploration
+        const WORLD_HEIGHT = 2000;
+
+        const PLAYER_COLOR = '#FF00FF'; // Magenta
+        const ENEMY_COLOR = '#00FFFF'; // Cyan
+        const STATION_COLOR = '#00FFFF'; // Cyan
+        const PROJECTILE_COLOR = '#FFFFFF'; // White
+        const STAR_COLOR = '#00FFFF';
+        const HUD_COLOR = '#00FFFF';
+        const HUD_ACCENT_COLOR = '#FF00FF';
+
+        const PLAYER_SIZE = 15;
+        const ENEMY_SIZE = 18;
+        const STATION_SIZE = 60;
+        const PROJECTILE_SIZE = 2;
+        const PLAYER_SPEED = 2.5;
+        const ENEMY_SPEED = 1;
+        const PROJECTILE_SPEED = 5;
+        const STAR_COUNT = 150;
+        const MAX_ENEMIES = 5;
+        const ENEMY_SPAWN_INTERVAL = 3000; // milliseconds
+        const SHOOT_COOLDOWN = 200; // milliseconds
+
+        // --- Game State ---
+        let player;
+        let enemies = [];
+        let projectiles = [];
+        let stars = [];
+        let station;
+        let camera = { x: 0, y: 0 };
+        let lastEnemySpawnTime = 0;
+        let lastShotTime = 0;
+        let touchState = {
+            move: { active: false, id: null, startX: 0, startY: 0, currentX: 0, currentY: 0 },
+            shoot: { active: false, id: null }
+        };
+
+        // --- Utility Functions ---
+        function getRandom(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+        function getRandomInt(min, max) {
+            return Math.floor(getRandom(min, max));
+        }
+        function distance(x1, y1, x2, y2) {
+            const dx = x1 - x2;
+            const dy = y1 - y2;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // --- Game Objects ---
+        class GameObject {
+            constructor(x, y, size, color) {
+                this.x = x;
+                this.y = y;
+                this.size = size;
+                this.color = color;
+                this.radius = size / 2; // For collision
+            }
+             // Basic draw method (override for specific shapes)
+            draw(offsetX, offsetY) {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x - this.radius - offsetX, this.y - this.radius - offsetY, this.size, this.size);
+            }
+        }
+
+        class Player extends GameObject {
+            constructor(x, y) {
+                super(x, y, PLAYER_SIZE, PLAYER_COLOR);
+                this.angle = -Math.PI / 2; // Pointing up
+                this.vx = 0;
+                this.vy = 0;
+            }
+
+            update() {
+                // Movement based on touch joystick
+                if (touchState.move.active) {
+                    const dx = touchState.move.currentX - touchState.move.startX;
+                    const dy = touchState.move.currentY - touchState.move.startY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const maxDist = 50; // Max joystick travel
+
+                    if (dist > 0) {
+                       const moveX = (dx / Math.min(dist, maxDist)) * PLAYER_SPEED;
+                       const moveY = (dy / Math.min(dist, maxDist)) * PLAYER_SPEED;
+                       this.vx = moveX;
+                       this.vy = moveY;
+                       this.angle = Math.atan2(dy, dx); // Update angle based on movement
+                    } else {
+                        this.vx = 0;
+                        this.vy = 0;
+                    }
+                } else {
+                    this.vx = 0;
+                    this.vy = 0;
+                }
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Keep player within world bounds
+                this.x = Math.max(this.radius, Math.min(WORLD_WIDTH - this.radius, this.x));
+                this.y = Math.max(this.radius, Math.min(WORLD_HEIGHT - this.radius, this.y));
+            }
+
+            draw(offsetX, offsetY) {
+                const screenX = this.x - offsetX;
+                const screenY = this.y - offsetY;
+
+                ctx.save();
+                ctx.translate(screenX, screenY);
+                ctx.rotate(this.angle + Math.PI / 2); // Adjust rotation because 0 rad is right
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                // Simple triangle/arrow shape
+                ctx.moveTo(0, -this.radius);
+                ctx.lineTo(this.radius * 0.7, this.radius * 0.7);
+                ctx.lineTo(0, this.radius * 0.3);
+                ctx.lineTo(-this.radius * 0.7, this.radius * 0.7);
+                ctx.closePath();
+                // Add wing details like the reference image
+                ctx.moveTo(-this.radius * 0.7, this.radius * 0.7);
+                ctx.lineTo(-this.radius * 1.2, this.radius * 0.5);
+                ctx.moveTo(this.radius * 0.7, this.radius * 0.7);
+                ctx.lineTo(this.radius * 1.2, this.radius * 0.5);
+
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            shoot() {
+                const now = Date.now();
+                if (now - lastShotTime > SHOOT_COOLDOWN) {
+                    projectiles.push(new Projectile(this.x, this.y, this.angle));
+                    lastShotTime = now;
+                }
+            }
+        }
+
+        class Enemy extends GameObject {
+            constructor(x, y) {
+                super(x, y, ENEMY_SIZE, ENEMY_COLOR);
+                this.angle = Math.random() * Math.PI * 2;
+            }
+
+            update() {
+                // Simple AI: Move towards player
+                const dx = player.x - this.x;
+                const dy = player.y - this.y;
+                const distToPlayer = Math.sqrt(dx*dx + dy*dy);
+
+                if (distToPlayer > this.radius + player.radius + 5) { // Don't crowd too much
+                    this.angle = Math.atan2(dy, dx);
+                    this.x += Math.cos(this.angle) * ENEMY_SPEED;
+                    this.y += Math.sin(this.angle) * ENEMY_SPEED;
+                }
+
+                 // Keep within world bounds (optional, maybe they fly off)
+                 this.x = Math.max(this.radius, Math.min(WORLD_WIDTH - this.radius, this.x));
+                 this.y = Math.max(this.radius, Math.min(WORLD_HEIGHT - this.radius, this.y));
+            }
+
+            draw(offsetX, offsetY) {
+                 // Draw a simple wireframe shape (like the small fighter in the reference)
+                const screenX = this.x - offsetX;
+                const screenY = this.y - offsetY;
+
+                ctx.save();
+                ctx.translate(screenX, screenY);
+                ctx.rotate(this.angle + Math.PI / 2);
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                 // Similar shape to player but maybe simpler/different proportions
+                ctx.moveTo(0, -this.radius);
+                ctx.lineTo(this.radius * 0.6, this.radius * 0.8);
+                ctx.lineTo(0, this.radius * 0.4);
+                ctx.lineTo(-this.radius * 0.6, this.radius * 0.8);
+                ctx.closePath();
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+
+         class Station extends GameObject {
+            constructor(x, y) {
+                super(x, y, STATION_SIZE, STATION_COLOR);
+                this.angle = 0;
+                this.rotationSpeed = 0.005;
+            }
+
+            update() {
+                this.angle += this.rotationSpeed;
+            }
+
+            draw(offsetX, offsetY) {
+                // Draw Coriolis station inspired shape
+                const screenX = this.x - offsetX;
+                const screenY = this.y - offsetY;
+                const r = this.radius;
+
+                ctx.save();
+                ctx.translate(screenX, screenY);
+                ctx.rotate(this.angle);
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 2;
+
+                // Outer frame points (approximating a beveled cube projection)
+                const points = [
+                    { x: -r, y: -r * 0.5 }, { x: -r * 0.5, y: -r }, { x: r * 0.5, y: -r },
+                    { x: r, y: -r * 0.5 }, { x: r, y: r * 0.5 }, { x: r * 0.5, y: r },
+                    { x: -r * 0.5, y: r }, { x: -r, y: r * 0.5 }
+                ];
+
+                // Draw outer frame
+                ctx.beginPath();
+                ctx.moveTo(points[0].x, points[0].y);
+                for (let i = 1; i < points.length; i++) {
+                    ctx.lineTo(points[i].x, points[i].y);
+                }
+                ctx.closePath();
+                ctx.stroke();
+
+                // Draw inner structure (docking bay entrance)
+                const innerScale = 0.4;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(points[3].x * innerScale, points[3].y * innerScale);
+                 ctx.lineTo(points[3].x, points[3].y); // Connect to outer
+                 ctx.moveTo(points[4].x * innerScale, points[4].y * innerScale);
+                 ctx.lineTo(points[4].x, points[4].y); // Connect to outer
+
+                 ctx.rect(points[3].x * innerScale, points[3].y * innerScale,
+                          (points[4].x - points[3].x) * innerScale,
+                          (points[4].y - points[3].y) * innerScale);
+
+
+                 // Add some more lines for detail (approximating the reference)
+                 const detailScale = 0.7;
+                 ctx.moveTo(points[1].x*detailScale, points[1].y*detailScale);
+                 ctx.lineTo(points[1].x, points[1].y);
+                 ctx.moveTo(points[2].x*detailScale, points[2].y*detailScale);
+                 ctx.lineTo(points[2].x, points[2].y);
+                 ctx.moveTo(points[5].x*detailScale, points[5].y*detailScale);
+                 ctx.lineTo(points[5].x, points[5].y);
+                 ctx.moveTo(points[6].x*detailScale, points[6].y*detailScale);
+                 ctx.lineTo(points[6].x, points[6].y);
+
+                ctx.stroke();
+
+                ctx.restore();
+            }
+        }
+
+
+        class Projectile extends GameObject {
+            constructor(x, y, angle) {
+                super(x, y, PROJECTILE_SIZE, PROJECTILE_COLOR);
+                this.vx = Math.cos(angle) * PROJECTILE_SPEED;
+                this.vy = Math.sin(angle) * PROJECTILE_SPEED;
+                this.life = 150; // Frames to live
+            }
+
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life--;
+            }
+
+            draw(offsetX, offsetY) {
+                // Simple dot projectile
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x - offsetX, this.y - offsetY, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        class Star {
+            constructor() {
+                this.x = getRandom(0, WORLD_WIDTH);
+                this.y = getRandom(0, WORLD_HEIGHT);
+                this.size = getRandom(0.5, 1.5);
+            }
+
+            draw(offsetX, offsetY) {
+                const screenX = this.x - offsetX;
+                const screenY = this.y - offsetY;
+                // Only draw if roughly on screen (simple culling)
+                if (screenX > -10 && screenX < GAME_WIDTH + 10 && screenY > -10 && screenY < GAME_HEIGHT - HUD_HEIGHT + 10) {
+                    ctx.fillStyle = STAR_COLOR;
+                    ctx.fillRect(Math.floor(screenX), Math.floor(screenY), Math.ceil(this.size), Math.ceil(this.size));
+                }
+            }
+        }
+
+        // --- Game Logic ---
+        function update() {
+            const now = Date.now();
+
+            // Handle Shooting
+            if (touchState.shoot.active) {
+                player.shoot();
+            }
+
+            player.update();
+
+            // Update camera to follow player, centered
+            camera.x = player.x - GAME_WIDTH / 2;
+            camera.y = player.y - (GAME_HEIGHT - HUD_HEIGHT) / 2;
+
+            // Clamp camera to world bounds
+            camera.x = Math.max(0, Math.min(WORLD_WIDTH - GAME_WIDTH, camera.x));
+            camera.y = Math.max(0, Math.min(WORLD_HEIGHT - (GAME_HEIGHT - HUD_HEIGHT), camera.y));
+
+
+            // Update projectiles and remove dead ones
+            projectiles = projectiles.filter(p => {
+                p.update();
+                return p.life > 0 && p.x > 0 && p.x < WORLD_WIDTH && p.y > 0 && p.y < WORLD_HEIGHT;
+            });
+
+            // Update enemies
+            enemies.forEach(enemy => enemy.update());
+            station.update();
+
+
+            // Spawn new enemies
+            if (now - lastEnemySpawnTime > ENEMY_SPAWN_INTERVAL && enemies.length < MAX_ENEMIES) {
+                spawnEnemy();
+                lastEnemySpawnTime = now;
+            }
+
+            // Collision Detection
+            handleCollisions();
+        }
+
+        function handleCollisions() {
+            // Projectile vs Enemy
+            projectiles.forEach((proj, projIndex) => {
+                enemies.forEach((enemy, enemyIndex) => {
+                    if (distance(proj.x, proj.y, enemy.x, enemy.y) < proj.radius + enemy.radius) {
+                        // Remove both
+                        projectiles.splice(projIndex, 1);
+                        enemies.splice(enemyIndex, 1);
+                        // TODO: Add explosion effect, score
+                    }
+                });
+                 // Projectile vs Station (make station indestructible)
+                if (distance(proj.x, proj.y, station.x, station.y) < proj.radius + station.radius) {
+                    projectiles.splice(projIndex, 1);
+                    // TODO: Add hit effect
+                }
+            });
+
+            // Player vs Enemy
+            enemies.forEach((enemy, enemyIndex) => {
+                if (distance(player.x, player.y, enemy.x, enemy.y) < player.radius + enemy.radius) {
+                    // Simple outcome: remove enemy, maybe damage player later
+                     enemies.splice(enemyIndex, 1);
+                    // TODO: Damage player, game over check
+                     console.log("Collision with enemy!");
+                }
+            });
+
+             // Player vs Station
+            if (distance(player.x, player.y, station.x, station.y) < player.radius + station.radius) {
+                // Push player back slightly to prevent getting stuck
+                const angle = Math.atan2(player.y - station.y, player.x - station.x);
+                player.x += Math.cos(angle) * 2;
+                player.y += Math.sin(angle) * 2;
+                 console.log("Collision with station!");
+            }
+        }
+
+        function spawnEnemy() {
+            // Spawn enemies away from the player
+            let spawnX, spawnY;
+            do {
+                spawnX = getRandom(0, WORLD_WIDTH);
+                spawnY = getRandom(0, WORLD_HEIGHT);
+            } while (distance(spawnX, spawnY, player.x, player.y) < GAME_WIDTH); // Don't spawn right on top of player
+
+            enemies.push(new Enemy(spawnX, spawnY));
+        }
+
+
+        // --- Drawing ---
+        function draw() {
+            // Clear canvas
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+            // --- Draw Game World ---
+            const gameViewHeight = GAME_HEIGHT - HUD_HEIGHT;
+            ctx.save();
+            ctx.rect(0, 0, GAME_WIDTH, gameViewHeight);
+            ctx.clip(); // Don't draw game world over HUD area
+
+             // Disable smoothing for crisp pixels
+            ctx.imageSmoothingEnabled = false;
+            ctx.webkitImageSmoothingEnabled = false;
+            ctx.mozImageSmoothingEnabled = false;
+
+            // Calculate camera offset for drawing
+             const offsetX = camera.x;
+             const offsetY = camera.y;
+
+            // Draw stars first (background)
+            stars.forEach(star => star.draw(offsetX, offsetY));
+
+            // Draw station
+            station.draw(offsetX, offsetY);
+
+            // Draw enemies
+            enemies.forEach(enemy => enemy.draw(offsetX, offsetY));
+
+            // Draw projectiles
+            projectiles.forEach(proj => proj.draw(offsetX, offsetY));
+
+            // Draw player last (on top)
+            player.draw(offsetX, offsetY);
+
+            ctx.restore(); // Remove clipping path
+
+            // --- Draw HUD ---
+            drawHUD();
+
+            // --- Draw Touch Controls (optional visual feedback) ---
+            drawTouchControls();
+        }
+
+        function drawHUD() {
+            const hudY = GAME_HEIGHT - HUD_HEIGHT;
+            const padding = 5;
+            const sectionWidth = GAME_WIDTH / 3 - padding * 1.5;
+            const scannerCenterX = GAME_WIDTH / 2;
+            const scannerCenterY = hudY + HUD_HEIGHT / 2 + 5; // Adjust vertical center
+            const scannerRadius = HUD_HEIGHT / 2 - padding * 2;
+            const scannerMaxDist = 500; // World units represented by scanner radius
+
+
+             ctx.strokeStyle = HUD_COLOR;
+             ctx.fillStyle = HUD_COLOR;
+             ctx.lineWidth = 2;
+
+            // Draw main HUD frame
+            ctx.strokeRect(padding, hudY + padding, GAME_WIDTH - 2 * padding, HUD_HEIGHT - 2 * padding);
+
+            // --- Left Section (Scanner Text & Bars) ---
+            const leftX = padding * 2;
+            let currentY = hudY + padding * 4;
+            ctx.font = '12px monospace';
+            ctx.fillText("SCANNER", leftX, currentY);
+            currentY += 15;
+            ctx.lineWidth = 1;
+            for (let i=0; i<4; i++) {
+                 ctx.strokeRect(leftX, currentY + i * 6, sectionWidth * 0.8, 4);
+            }
+             currentY += 35;
+             // Little squares like the original
+             ctx.fillStyle = HUD_ACCENT_COLOR; // Magenta
+              for (let i = 0; i < 2; i++) {
+                 for (let j = 0; j < 4; j++) {
+                      ctx.fillRect(leftX + j*10, currentY + i * 10, 7, 7);
+                 }
+             }
+             ctx.fillStyle = HUD_COLOR; // Cyan squares
+              for (let i = 0; i < 1; i++) {
+                 for (let j = 0; j < 4; j++) {
+                      ctx.fillRect(leftX + j*10, currentY -10 + i * 10, 7, 7);
+                 }
+             }
+
+
+            // --- Center Section (Scanner Display & Title) ---
+            //  ctx.font = '16px monospace';
+            //  const titleWidth = ctx.measureText("ELITE").width;
+            //  ctx.fillText("ELITE", scannerCenterX - titleWidth / 2, hudY + HUD_HEIGHT - padding * 2);
+
+             // Draw scanner oval
+             ctx.strokeStyle = HUD_COLOR;
+             ctx.lineWidth = 1.5;
+             ctx.beginPath();
+             ctx.ellipse(scannerCenterX, scannerCenterY, scannerRadius * 1.2, scannerRadius * 0.8, 0, 0, Math.PI * 2);
+             ctx.stroke();
+
+              // Draw scanner grid lines (dotted)
+             ctx.setLineDash([2, 3]);
+             ctx.lineWidth = 1;
+             ctx.beginPath();
+             // Horizontal line
+             ctx.moveTo(scannerCenterX - scannerRadius * 1.2, scannerCenterY);
+             ctx.lineTo(scannerCenterX + scannerRadius * 1.2, scannerCenterY);
+              // Vertical line
+             ctx.moveTo(scannerCenterX, scannerCenterY - scannerRadius * 0.8);
+             ctx.lineTo(scannerCenterX, scannerCenterY + scannerRadius * 0.8);
+              // Diagonals
+             const diagOffsetX = scannerRadius * 1.2 * Math.cos(Math.PI / 4);
+             const diagOffsetY = scannerRadius * 0.8 * Math.sin(Math.PI / 4);
+             ctx.moveTo(scannerCenterX - diagOffsetX, scannerCenterY - diagOffsetY);
+             ctx.lineTo(scannerCenterX + diagOffsetX, scannerCenterY + diagOffsetY);
+             ctx.moveTo(scannerCenterX - diagOffsetX, scannerCenterY + diagOffsetY);
+             ctx.lineTo(scannerCenterX + diagOffsetX, scannerCenterY - diagOffsetY);
+             ctx.stroke();
+             ctx.setLineDash([]); // Reset dashes
+
+
+             // Draw scanner objects (enemies and station relative to player)
+             const drawScannerObject = (obj, color, size) => {
+                 const dx = obj.x - player.x;
+                 const dy = obj.y - player.y;
+                 const dist = Math.sqrt(dx*dx + dy*dy);
+
+                 if (dist < scannerMaxDist) {
+                     const angle = Math.atan2(dy, dx);
+                     // Scale distance to fit scanner radius (adjusting for ellipse)
+                     const displayDistX = (dist / scannerMaxDist) * scannerRadius * 1.2;
+                     const displayDistY = (dist / scannerMaxDist) * scannerRadius * 0.8;
+
+                     const displayX = scannerCenterX + Math.cos(angle) * displayDistX;
+                     const displayY = scannerCenterY + Math.sin(angle) * displayDistY; // Y grows downwards
+
+                     // Clip to ellipse boundary if needed (simple approximation)
+                     const normalizedX = (displayX - scannerCenterX) / (scannerRadius * 1.2);
+                     const normalizedY = (displayY - scannerCenterY) / (scannerRadius * 0.8);
+                     if(normalizedX*normalizedX + normalizedY*normalizedY <= 1) {
+                        ctx.fillStyle = color;
+                        ctx.fillRect(Math.floor(displayX - size/2), Math.floor(displayY - size/2), size, size);
+                     }
+                 }
+             };
+
+            enemies.forEach(e => drawScannerObject(e, ENEMY_COLOR, 3));
+            drawScannerObject(station, STATION_COLOR, 5); // Station blip is larger
+
+
+            // --- Right Section (Status Text & Bars) ---
+            const rightX = GAME_WIDTH - padding * 2 - sectionWidth;
+             currentY = hudY + padding * 4;
+             ctx.font = '10px monospace';
+             ctx.fillText("SPACE", rightX, currentY);
+             ctx.fillRect(rightX + 45, currentY - 8, sectionWidth*0.4, 8); // Bar
+             currentY += 12;
+             ctx.fillText(" MIS", rightX+10, currentY); // Align text
+             ctx.fillRect(rightX + 45, currentY - 8, sectionWidth*0.4, 8); // Bar
+             currentY += 12;
+             ctx.fillText("  CS", rightX+10, currentY); // Align text
+             ctx.fillRect(rightX + 45, currentY - 8, sectionWidth*0.4, 8); // Bar
+
+            // Draw grid below text
+             currentY += 15;
+             ctx.lineWidth = 1;
+              for (let i = 0; i < 5; i++) {
+                 ctx.strokeRect(rightX, currentY + i * 6, sectionWidth * 0.8, 4);
+             }
+
+             // Draw vertical bar indicator thingy
+             const barIndicatorX = GAME_WIDTH - padding * 4 - 10;
+             const barIndicatorY = hudY + padding * 3;
+             const barIndicatorH = HUD_HEIGHT - padding * 6;
+             ctx.strokeRect(barIndicatorX, barIndicatorY, 10, barIndicatorH);
+             // Fill level (example: 70%)
+             const fillHeight = barIndicatorH * 0.7;
+             ctx.fillRect(barIndicatorX + 1, barIndicatorY + barIndicatorH - fillHeight + 1 , 8, fillHeight - 2 );
+              // Ticks on the bar
+              for (let i=1; i<5; i++) {
+                  const tickY = barIndicatorY + (barIndicatorH / 5) * i;
+                  ctx.beginPath();
+                  ctx.moveTo(barIndicatorX, tickY);
+                  ctx.lineTo(barIndicatorX + 10, tickY);
+                  ctx.stroke();
+              }
+             // Bottom 'T' shape
+             ctx.beginPath();
+             ctx.moveTo(barIndicatorX - 3, barIndicatorY + barIndicatorH);
+             ctx.lineTo(barIndicatorX + 10 + 3, barIndicatorY + barIndicatorH);
+             ctx.moveTo(barIndicatorX + 5, barIndicatorY + barIndicatorH);
+             ctx.lineTo(barIndicatorX + 5, barIndicatorY + barIndicatorH + 5);
+             ctx.stroke();
+
+        }
+
+         function drawTouchControls() {
+            // Draw virtual joystick area feedback
+            if (touchState.move.active) {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.lineWidth = 2;
+
+                // Outer circle (base)
+                ctx.beginPath();
+                ctx.arc(touchState.move.startX, touchState.move.startY, 40, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Inner circle (stick position)
+                 // Clamp stick visual position
+                 const dx = touchState.move.currentX - touchState.move.startX;
+                 const dy = touchState.move.currentY - touchState.move.startY;
+                 const dist = Math.sqrt(dx*dx + dy*dy);
+                 const maxDist = 40;
+                 const clampedDist = Math.min(dist, maxDist);
+                 const angle = Math.atan2(dy, dx);
+
+                 const stickX = touchState.move.startX + Math.cos(angle) * clampedDist;
+                 const stickY = touchState.move.startY + Math.sin(angle) * clampedDist;
+
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+                ctx.beginPath();
+                ctx.arc(stickX, stickY, 25, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+             // Draw shoot button area feedback (optional, maybe just flash?)
+             if (touchState.shoot.active) {
+                 // Example: Draw a light circle on the right side
+                 ctx.fillStyle = 'rgba(255, 0, 255, 0.2)'; // Magentaish glow
+                 ctx.beginPath();
+                 // Center the feedback roughly on the right half
+                 ctx.arc(GAME_WIDTH * 0.75, (GAME_HEIGHT - HUD_HEIGHT) / 2, 50, 0, Math.PI * 2);
+                 ctx.fill();
+             }
+        }
+
+        // --- Input Handling ---
+        function handleTouchStart(event) {
+            event.preventDefault();
+            const touches = event.changedTouches;
+            const rect = canvas.getBoundingClientRect();
+
+            for (let i = 0; i < touches.length; i++) {
+                const touch = touches[i];
+                // Scale touch coordinates to canvas coordinates
+                const touchX = (touch.clientX - rect.left) * (canvas.width / rect.width);
+                const touchY = (touch.clientY - rect.top) * (canvas.height / rect.height);
+
+                // Left side for movement
+                if (touchX < GAME_WIDTH / 2 && !touchState.move.active) {
+                    touchState.move.active = true;
+                    touchState.move.id = touch.identifier;
+                    touchState.move.startX = touchX;
+                    touchState.move.startY = touchY;
+                    touchState.move.currentX = touchX;
+                    touchState.move.currentY = touchY;
+                }
+                // Right side for shooting
+                else if (touchX >= GAME_WIDTH / 2 && !touchState.shoot.active) {
+                    touchState.shoot.active = true;
+                    touchState.shoot.id = touch.identifier;
+                }
+            }
+        }
+
+        function handleTouchMove(event) {
+            event.preventDefault();
+            const touches = event.changedTouches;
+             const rect = canvas.getBoundingClientRect();
+
+            for (let i = 0; i < touches.length; i++) {
+                const touch = touches[i];
+                const touchX = (touch.clientX - rect.left) * (canvas.width / rect.width);
+                const touchY = (touch.clientY - rect.top) * (canvas.height / rect.height);
+
+                if (touchState.move.active && touch.identifier === touchState.move.id) {
+                    touchState.move.currentX = touchX;
+                    touchState.move.currentY = touchY;
+                }
+            }
+        }
+
+        function handleTouchEnd(event) {
+            event.preventDefault();
+            const touches = event.changedTouches;
+
+            for (let i = 0; i < touches.length; i++) {
+                const touch = touches[i];
+                if (touchState.move.active && touch.identifier === touchState.move.id) {
+                    touchState.move.active = false;
+                    touchState.move.id = null;
+                    player.vx = 0; // Stop moving when stick released
+                    player.vy = 0;
+                }
+                if (touchState.shoot.active && touch.identifier === touchState.shoot.id) {
+                    touchState.shoot.active = false;
+                    touchState.shoot.id = null;
+                }
+            }
+        }
+
+        // --- Game Loop ---
+        let lastTime = 0;
+        function gameLoop(timestamp) {
+            const deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+
+            update(deltaTime);
+            draw();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- Initialization ---
+        function init() {
+            // Set canvas dimensions
+            canvas.width = GAME_WIDTH;
+            canvas.height = GAME_HEIGHT;
+
+            // Create player centered in the initial view
+            player = new Player(WORLD_WIDTH / 2, WORLD_HEIGHT / 2);
+
+             // Create station somewhere in the world
+             station = new Station(WORLD_WIDTH * 0.6, WORLD_HEIGHT * 0.4);
+
+            // Create stars
+            for (let i = 0; i < STAR_COUNT; i++) {
+                stars.push(new Star());
+            }
+
+            // Add initial enemies
+            for(let i = 0; i < 2; i++) {
+                spawnEnemy();
+            }
+
+            // Add touch event listeners
+            canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+            canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+            canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+            canvas.addEventListener('touchcancel', handleTouchEnd, { passive: false }); // Treat cancel like end
+
+            // Start the game loop
+             lastTime = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // --- Start the game ---
+        init();
+
+    </script>
+</body>
+</html>
