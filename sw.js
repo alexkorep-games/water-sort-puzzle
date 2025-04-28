@@ -1,4 +1,4 @@
-const CACHE_NAME = 'color-sort-cache-v1'; // Change version if you update assets
+const CACHE_NAME = 'color-sort-cache-v2'; // Change version if you update assets
 const urlsToCache = [
   './', // Alias for index.html
   'index.html',

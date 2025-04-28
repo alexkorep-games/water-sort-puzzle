@@ -51,7 +51,7 @@
 
       .game-info {
         display: flex;
-        justify-content: space-between; /* Space out elements */
+        justify-content: space-around; /* Adjusted for better spacing */
         width: 100%;
         max-width: 600px; /* Limit width of info bar */
         margin-bottom: 20px;
@@ -72,6 +72,21 @@
       /* Ensure target moves takes adequate space */
       #targetMoves {
         flex-grow: 1.5; /* Give slightly more space */
+      }
+
+      /* Add styles for the new indicator */
+      #possibleMoveIndicator {
+          font-weight: bold;
+          color: #ffffff; /* White default */
+          min-width: 150px; /* Give it enough space */
+      }
+
+      #possibleMoveIndicator.possible {
+          color: #90ee90; /* Light green for possible */
+      }
+
+      #possibleMoveIndicator.not-possible {
+          color: #f08080; /* Light coral for not possible */
       }
 
       .tubes-container {
@@ -202,7 +217,12 @@
 
       /* Basic responsiveness */
       @media (max-width: 700px) {
-        /* Adjusted breakpoint for better layout */
+        .game-info {
+           /* Adjust if needed */
+        }
+        #possibleMoveIndicator {
+            min-width: 120px; /* Adjust for smaller screens */
+        }
         .controls {
           flex-direction: column; /* Stack controls vertically */
           align-items: stretch; /* Make controls take full width */
@@ -233,6 +253,12 @@
         .info-item {
           min-width: 80px; /* Adjust min-width */
         }
+        /* Move indicator to the top on small screens */
+        #possibleMoveIndicator {
+           order: -1;
+           width: 100%; /* Take full width */
+           margin-bottom: 5px;
+        }
         .win-message {
           font-size: 1.5em;
           padding: 20px 30px;
@@ -256,7 +282,9 @@
   <body>
     <div class="game-container">
       <div class="game-info">
-        <!-- Updated Info Area -->
+        <!-- Added Indicator -->
+        <span class="info-item" id="possibleMoveIndicator">Possible Move: -</span>
+        <!-- Existing Items -->
         <span class="info-item" id="targetMoves">Difficulty: Medium</span>
         <span class="info-item" id="moves">Moves: 0</span>
       </div>
@@ -291,21 +319,22 @@
       const newGameBtn = document.getElementById("newGameBtn");
       const winMessageDiv = document.getElementById("winMessage");
       const difficultySelect = document.getElementById("difficultySelect"); // Get reference to dropdown
+      const possibleMoveIndicator = document.getElementById("possibleMoveIndicator"); // <-- Reference to new element
 
       const TUBE_CAPACITY = 4;
       const COLORS = {
-        c1: "#006400",
-        c2: "#00008b",
-        c3: "#b03060",
-        c4: "#ff0000",
-        c5: "#ffff00",
-        c6: "#00ff00",
-        c7: "#00ffff",
-        c8: "#ff00ff",
-        c9: "#6495ed",
-        c10: "#ffdab9",
-        c11: "#808080",
-        c12: "#008080",
+        c1: "#006400", // DarkGreen
+        c2: "#00008b", // DarkBlue
+        c3: "#b03060", // Maroon variant
+        c4: "#ff0000", // Red
+        c5: "#ffff00", // Yellow
+        c6: "#00ff00", // Lime
+        c7: "#00ffff", // Aqua
+        c8: "#ff00ff", // Fuchsia
+        c9: "#6495ed", // CornflowerBlue
+        c10: "#ffdab9", // PeachPuff
+        c11: "#808080", // Gray
+        c12: "#008080", // Teal
       };
       const COLOR_NAMES = Object.keys(COLORS);
       const NUM_EMPTY_TUBES = 2; // Typically 2 empty tubes
@@ -435,10 +464,10 @@
 
         updateMovesDisplay();
         updateDifficultyDisplay(); // Use the new function name for clarity
-
         saveState(); // Save the initial state for undo
         renderTubes();
         updateUndoButton();
+        updatePossibleMoveIndicator(); // <-- Update indicator on init
       }
 
       function restartGame() {
@@ -467,6 +496,7 @@
         saveState();
         renderTubes();
         updateUndoButton();
+        updatePossibleMoveIndicator(); // <-- Update indicator on restart
       }
 
       function renderTubes() {
@@ -484,7 +514,6 @@
           });
 
           // Fill remaining space visually if not full (handled by CSS flex generally)
-          // No need for explicit empty divs if using flex-direction: column-reverse
 
           if (index === selectedTubeIndex) {
             tubeElement.classList.add("selected");
@@ -501,28 +530,39 @@
         const clickedIndex = parseInt(event.currentTarget.dataset.index);
 
         if (selectedTubeIndex === -1) {
+            // Selecting source
           if (tubes[clickedIndex].length > 0) {
             selectedTubeIndex = clickedIndex;
-            renderTubes();
+            renderTubes(); // Re-render to show selection
           }
         } else {
+           // Source already selected, now selecting destination
           if (clickedIndex === selectedTubeIndex) {
+            // Deselecting
             selectedTubeIndex = -1;
             renderTubes();
           } else {
+            // Attempting to pour
             if (canPour(selectedTubeIndex, clickedIndex)) {
               saveState();
               doPour(selectedTubeIndex, clickedIndex);
               moves++;
               updateMovesDisplay();
               selectedTubeIndex = -1;
-              renderTubes();
+              renderTubes(); // Re-render after pour
               updateUndoButton();
-              checkWinCondition();
+              checkWinCondition(); // Check win AFTER the move
+              // updatePossibleMoveIndicator() will be called by checkWinCondition if game ends, or after this block
+              if(!gameWon) { // Only update if game is not won yet
+                updatePossibleMoveIndicator(); // <-- Update indicator after successful move
+              }
+
             } else {
+              // Invalid move
               console.log("Invalid move");
-              selectedTubeIndex = -1;
+              selectedTubeIndex = -1; // Deselect after invalid attempt
               renderTubes();
+               // No state change, so no need to update the global possible move indicator
             }
           }
         }
@@ -536,12 +576,13 @@
         const sourceTube = tubes[sourceIndex];
         const destTube = tubes[destIndex];
 
-        if (sourceTube.length === 0) return false;
-        if (destTube.length >= TUBE_CAPACITY) return false;
+        if (sourceTube.length === 0) return false; // Cannot pour from empty
+        if (destTube.length >= TUBE_CAPACITY) return false; // Cannot pour to full
 
         const topColorSource = getTopColor(sourceTube);
         const topColorDest = getTopColor(destTube);
 
+        // Can pour if destination is empty OR top colors match
         return topColorDest === null || topColorSource === topColorDest;
       }
 
@@ -550,53 +591,61 @@
         const destTube = tubes[destIndex];
         const colorToMove = getTopColor(sourceTube);
 
-        if (!colorToMove) return;
+        if (!colorToMove) return; // Should not happen if canPour passed
 
+        // Determine how many blocks of the same color are on top of source
         let pourAmount = 0;
         for (let i = sourceTube.length - 1; i >= 0; i--) {
           if (sourceTube[i] === colorToMove) {
             pourAmount++;
           } else {
-            break;
+            break; // Stop counting when a different color is found
           }
         }
 
+        // Limit pour amount by available space in destination
         const availableSpace = TUBE_CAPACITY - destTube.length;
         pourAmount = Math.min(pourAmount, availableSpace);
 
+        // Move the blocks
         for (let i = 0; i < pourAmount; i++) {
           if (sourceTube.length === 0) {
             console.error("Source tube became empty unexpectedly during pour.");
-            break;
+            break; // Safety break
           }
           destTube.push(sourceTube.pop());
         }
       }
 
-      function checkWinCondition() {
-        if (gameWon) return;
+       function checkWinCondition() {
+        if (gameWon) return; // Don't check if already won
 
         for (const tube of tubes) {
+          // Check for incomplete tubes that are not empty
           if (tube.length > 0 && tube.length < TUBE_CAPACITY) {
-            return; // Found a partially filled tube
+            return; // Found a partially filled tube, game not won
           }
+          // Check for full tubes that are not uniform
           if (tube.length === TUBE_CAPACITY) {
             const firstColor = tube[0];
             for (let i = 1; i < tube.length; i++) {
               if (tube[i] !== firstColor) {
-                return; // Found a mixed full tube
+                return; // Found a mixed full tube, game not won
               }
             }
           }
-          // Empty tubes are ok
+          // Empty tubes (tube.length === 0) are okay
         }
 
+        // If we looped through all tubes without returning, the win condition is met
         console.log("Win condition met!");
         gameWon = true;
         winMessageDiv.textContent = `Solved in ${moves} moves!`;
         winMessageDiv.style.display = "block";
         updateUndoButton(); // Disable undo after winning
+        updatePossibleMoveIndicator(); // <-- Update indicator after winning (should show "No")
       }
+
 
       function updateMovesDisplay() {
         movesSpan.textContent = `Moves: ${moves}`;
@@ -623,20 +672,23 @@
       }
 
       function undoMove() {
-        if (gameWon) return;
-        if (history.length > 1) {
-          history.pop();
-          const previousState = history[history.length - 1];
+        if (gameWon) return; // Cannot undo if game is won
+        if (history.length > 1) { // Need more than the initial state to undo
+          history.pop(); // Remove the current state
+          const previousState = history[history.length - 1]; // Get the new latest state
 
+          // Restore the state (deep copy)
           tubes = JSON.parse(JSON.stringify(previousState.tubes));
           moves = previousState.moves;
 
-          selectedTubeIndex = -1;
+          selectedTubeIndex = -1; // Reset selection
+          gameWon = false; // Reset win state just in case we undo from a win
+          winMessageDiv.style.display = "none"; // Hide win message
+
           renderTubes();
           updateMovesDisplay();
           updateUndoButton();
-          winMessageDiv.style.display = "none";
-          gameWon = false;
+          updatePossibleMoveIndicator(); // <-- Update indicator after undo
         } else {
           console.log("Cannot undo further.");
         }
@@ -646,8 +698,47 @@
         undoBtn.disabled = history.length <= 1 || gameWon;
       }
 
+
+      // --- NEW FUNCTIONS ---
+
+      /**
+       * Checks if any valid move exists between any pair of tubes.
+       * @returns {boolean} True if at least one valid move exists, false otherwise.
+       */
+      function checkIfAnyMovePossible() {
+        if (gameWon) return false; // No moves possible if game is won
+
+        for (let i = 0; i < tubes.length; i++) { // Source tube index
+          for (let j = 0; j < tubes.length; j++) { // Destination tube index
+            if (i === j) continue; // Cannot pour into the same tube
+
+            if (canPour(i, j)) {
+                // console.log(`Possible move found: ${i} -> ${j}`); // Debug log
+                return true; // Found at least one possible move
+            }
+          }
+        }
+        // console.log("No possible moves found."); // Debug log
+        return false; // Checked all pairs, no valid moves found
+      }
+
+      /**
+       * Updates the text and style of the possible move indicator.
+       */
+      function updatePossibleMoveIndicator() {
+          const possible = checkIfAnyMovePossible();
+          possibleMoveIndicator.textContent = `Possible Move: ${possible ? 'Yes' : 'No'}`;
+          possibleMoveIndicator.classList.remove('possible', 'not-possible'); // Remove previous classes
+          if (possible) {
+              possibleMoveIndicator.classList.add('possible');
+          } else {
+              possibleMoveIndicator.classList.add('not-possible');
+          }
+      }
+
+
       // --- Event Listeners ---
-      restartBtn.addEventListener("click", restartGame); // Restart keeps current difficulty
+      restartBtn.addEventListener("click", restartGame);
       undoBtn.addEventListener("click", undoMove);
 
       // New Game button uses the *currently selected* difficulty
