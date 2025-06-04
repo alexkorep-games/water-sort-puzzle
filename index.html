@@ -15,7 +15,8 @@
       :root {
         --tube-width: 60px;
         --tube-height: 240px;
-        --liquid-height: 60px; /* --tube-height / capacity */
+        --tube-fill-ratio: 0.9; /* Percentage of tube actually filled */
+        --liquid-height: calc(var(--tube-height) * var(--tube-fill-ratio) / 4);
         --tube-border-radius: 10px;
         --tube-bottom-radius: 30px;
         --animation-speed: 0.3s;
@@ -244,7 +245,6 @@
         :root {
           --tube-width: 50px;
           --tube-height: 200px;
-          --liquid-height: 50px;
         }
         .game-info {
           font-size: 1em;
@@ -268,7 +268,6 @@
         :root {
           --tube-width: 45px;
           --tube-height: 180px;
-          --liquid-height: 45px;
         }
         .tubes-container {
           gap: 15px;
